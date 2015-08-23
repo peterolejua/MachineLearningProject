@@ -1,0 +1,103 @@
+---
+title: "Performing barbell lifts correctly with data from accelerometers"
+author: "Peter Olejua"
+date: "August 17, 2015"
+output: 
+  html_document: 
+    number_sections: yes
+    theme: flatly
+    toc: yes
+---
+
+# Summary
+Here a machine learning algorithm is built to predict activity quality from activity monitors. Six subjects performed barbell lifts correctly and incorrectly in 5 different ways. A group of [researchers](http://groupware.les.inf.puc-rio.br/har) collected data from accelerometers used by the participants. The goal here is to predict how well the participants performed.
+
+After analysing the data available we used random forest to estimate how participants did the exercises. We got an out-of-sample error of 0.37%.
+
+
+# The data
+
+```{r donwload time, echo=F, cache=TRUE}
+download_time <- date()
+```
+
+The [data](http://groupware.les.inf.puc-rio.br/har) for the project was divided into [training data](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv) and [test data](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv). These data sets were obtained on "`r download_time`".
+
+```{r, echo=F, cache=TRUE}
+download.file('https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv', method = 'curl', destfile = 'training.csv')
+download.file('https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv', method = 'curl', destfile = 'testing.csv')
+training <- read.csv('training.csv')
+testing <- read.csv('testing.csv')
+
+```
+These data dimensions are `r dim(training)[1]` rows and `r dim(training)[2]` columns  for the training set and `r dim(testing)[1]` rows and `r dim(testing)[2]` columns for the testing set.
+
+The variable we want to predict is the last one in the training set:
+```{r Variables to predict, cache=T}
+table(training$classe)
+```
+
+Each class (letter) corresponds to a type of performing Unilateral Dumbbell Biceps Curl.
+
+# Data Analysis and variable reduction
+After carefully doing a descriptive analysis of the data, we noted that when the variable *new_window* was equal to "no" then `r length(grep("^amplitude|^avg|^kurtosis|^max|^min|^skewness|^stddev|^var_",names(training)))` variables were not polluted.
+
+We assume these variables are not relevant to build the machine learning algorithm. Probably the exercise performed by the participants did not generate data on this particular variables. For this reason we decided to take this variables out. Also, we eliminated the first five variables because they were names or dates used to slice the data previously and putting the windows into the variables *new_window* and *num_window*.
+
+```{r analysis , echo=F, cache=TRUE, results='hide'}
+# analyzing the data----
+str(training)
+str(testing)
+
+summary(training[training$new_window=='yes',sort(names(training))])
+summary(training[training$new_window=='no',sort(names(training))])
+summary(testing)
+
+sum(complete.cases(training))
+# Variable reduction----
+data <- training[,-grep("^amplitude|^avg|^kurtosis|^max|^min|^skewness|^stddev|^var_",names(training))]
+summary(data)
+str(data)
+data <- subset(data,select = -c(X,user_name,raw_timestamp_part_1,raw_timestamp_part_2,cvtd_timestamp))
+sum(complete.cases(data))
+
+data_submission <- testing[,-grep("^amplitude|^avg|^kurtosis|^max|^min|^skewness|^stddev|^var_",names(training))]
+data_submission <- subset(data_submission,select = -c(X,user_name,raw_timestamp_part_1,raw_timestamp_part_2,cvtd_timestamp))
+sum(complete.cases(data_submission))
+```
+After reducing the variables the dimensions of the data obtained were `r dim(data)`.
+
+# Cross-validation and out-of-sample error
+The algorithm we chose was random forests
+The testing data is actually a data for evaluation purposes. So we divided the data into train set and test set based on the variable to predict using the library "caret".
+
+```{r dvd data , echo=F, cache=TRUE, results='hide'}
+# train and test sets----
+trainIndex = caret::createDataPartition(training$classe, p = 0.70,list=FALSE)
+train_set = data[trainIndex,]
+test_set = data[-trainIndex,]
+```
+The resulting 70% training set had dimensions `r dim(train_set)`.
+
+For estimating out-of-sample error we let the random forest algorithm to take care of it. This machine learning algorithm builds several trees sub-sampling the data into training and testing sets at each iteration. After it is run the estimate is reported as the OOB (out of bag) estimate of error rate. More about it can be found in [here](https://www.stat.berkeley.edu/~breiman/RandomForests/cc_home.htm#ooberr). Additionally we also have the report of the OOB error on the test set we have just created.
+
+# Using Random Forest
+As this is a problem of classification we selected on the most accurate algorithms available in this cases, [Random Forests](https://en.wikipedia.org/wiki/Random_forest). To avoid the underestimation of the out-of-sample error we do the random sampling without replacement. The results are found below.
+
+```{r random forest , cache=T}
+# fitting the forest
+library(randomForest)
+rf_model_no_replace <- randomForest(x=train_set[,-55],y=train_set[,55],
+                                   xtest=test_set[,-55],ytest=test_set[,55],
+                                   raplace=F,
+                                   keep.forest=TRUE)
+# Results
+rf_model_no_replace
+
+# Results on the former testing set
+levels(data_submission$new_window) <- c('no', 'yes')
+predict(rf_model_no_replace,newdata=data_submission) # Error in number 7
+```
+
+
+
